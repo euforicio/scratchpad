@@ -101,6 +101,7 @@ done
 # which Xcode adds automatically but manual codesign does not. Without these,
 # CloudKit fails with CKError.missingEntitlement (code 8).
 RESOLVED_ENTITLEMENTS="$DIST_DIR/scratchpad-resolved.entitlements"
+KEYCHAIN_ACCESS_GROUP="${TEAM_ID}.${BUNDLE_ID}"
 sed -e "s|\\\$(TeamIdentifierPrefix)|${TEAM_ID}.|g" \
     -e "s|\\\$(CFBundleIdentifier)|${BUNDLE_ID}|g" \
     "$PROJECT_DIR/Sources/scratchpad-direct.entitlements" > "$RESOLVED_ENTITLEMENTS"
@@ -112,7 +113,7 @@ sed -i '' 's|</dict>|    <key>com.apple.application-identifier</key>\
     <string>'"${TEAM_ID}"'</string>\
     <key>keychain-access-groups</key>\
     <array>\
-        <string>'"${TEAM_ID}"'.*</string>\
+        <string>'"${KEYCHAIN_ACCESS_GROUP}"'</string>\
     </array>\
 </dict>|' "$RESOLVED_ENTITLEMENTS"
 

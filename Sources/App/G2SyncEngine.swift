@@ -1,10 +1,16 @@
 import Foundation
 import os.log
+import Security
 
 final class G2SyncEngine: ObservableObject {
     static let shared = G2SyncEngine()
 
     private static let baseURL = "https://scratchpad.euforic.io"
+    private static let keychainService = "io.euforic.scratchpad.g2sync"
+    private static let deviceIdKey = "g2DeviceId"
+    private static let secretKey = "g2Secret"
+    private static let linkedKey = "g2Linked"
+    private static let versionKey = "g2Version"
 
     enum State: Equatable {
         case disabled
@@ -17,19 +23,14 @@ final class G2SyncEngine: ObservableObject {
     private let defaults = UserDefaults.standard
     private let logger = Logger(subsystem: "io.euforic.scratchpad", category: "G2Sync")
 
-    private static let deviceIdKey = "g2DeviceId"
-    private static let secretKey = "g2Secret"
-    private static let linkedKey = "g2Linked"
-    private static let versionKey = "g2Version"
-
     private var deviceId: String? {
-        get { defaults.string(forKey: Self.deviceIdKey) }
-        set { defaults.set(newValue, forKey: Self.deviceIdKey) }
+        get { keychainValue(for: Self.deviceIdKey) }
+        set { setKeychainValue(newValue, for: Self.deviceIdKey) }
     }
 
     private var secret: String? {
-        get { defaults.string(forKey: Self.secretKey) }
-        set { defaults.set(newValue, forKey: Self.secretKey) }
+        get { keychainValue(for: Self.secretKey) }
+        set { setKeychainValue(newValue, for: Self.secretKey) }
     }
 
     private var isLinked: Bool {
@@ -48,6 +49,14 @@ final class G2SyncEngine: ObservableObject {
     private var pendingPushIDs: Set<UUID> = []
     private var pendingDeleteIDs: Set<UUID> = []
 
+    private enum SyncError: Error {
+        case randomGenerationFailed
+    }
+
+    private init() {
+        migrateLegacyCredentials()
+    }
+
     private var authHeader: String? {
         guard let deviceId, let secret else { return nil }
         return "Bearer \(deviceId):\(secret)"
@@ -65,7 +74,13 @@ final class G2SyncEngine: ObservableObject {
             deviceId = UUID().uuidString
         }
         if secret == nil {
-            secret = generateSecret()
+            do {
+                secret = try generateSecret()
+            } catch {
+                logger.error("Unable to generate G2 secret")
+                state = .disabled
+                return
+            }
         }
 
         if isLinked {
@@ -93,6 +108,9 @@ final class G2SyncEngine: ObservableObject {
         }
 
         isLinked = false
+        deviceId = nil
+        secret = nil
+        version = 0
         state = .disabled
     }
 
@@ -391,9 +409,100 @@ final class G2SyncEngine: ObservableObject {
         return String((0..<6).map { _ in chars.randomElement()! })
     }
 
-    private func generateSecret() -> String {
+    private func generateSecret() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw SyncError.randomGenerationFailed
+        }
         return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func migrateLegacyCredentials() {
+        if let legacyDeviceId = defaults.string(forKey: Self.deviceIdKey),
+           keychainValue(for: Self.deviceIdKey) == nil,
+           setKeychainValue(legacyDeviceId, for: Self.deviceIdKey) {
+            defaults.removeObject(forKey: Self.deviceIdKey)
+        }
+        if let legacySecret = defaults.string(forKey: Self.secretKey),
+           keychainValue(for: Self.secretKey) == nil,
+           setKeychainValue(legacySecret, for: Self.secretKey) {
+            defaults.removeObject(forKey: Self.secretKey)
+        }
+    }
+
+    private func keychainQuery(for key: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: key
+        ]
+    }
+
+    private func keychainValue(for key: String) -> String? {
+        var query = keychainQuery(for: key)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data,
+                  let value = String(data: data, encoding: .utf8) else {
+                logger.error("G2 keychain value for \(key, privacy: .public) could not be decoded")
+                return nil
+            }
+            return value
+        case errSecItemNotFound:
+            return nil
+        default:
+            logger.error("Failed to read G2 keychain value for \(key, privacy: .public): \(status)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func setKeychainValue(_ value: String?, for key: String) -> Bool {
+        guard let value else {
+            _ = deleteKeychainValue(for: key)
+            return true
+        }
+
+        let data = Data(value.utf8)
+        let query = keychainQuery(for: key)
+
+        let addQuery = query.merging([
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]) { _, new in new }
+
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        switch addStatus {
+        case errSecSuccess:
+            return true
+        case errSecDuplicateItem:
+            let updateStatus = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            if updateStatus != errSecSuccess {
+                logger.error("Failed to update G2 keychain value for \(key, privacy: .public): \(updateStatus)")
+                return false
+            }
+            return true
+        default:
+            logger.error("Failed to save G2 keychain value for \(key, privacy: .public): \(addStatus)")
+            return false
+        }
+    }
+
+    @discardableResult
+    private func deleteKeychainValue(for key: String) -> Bool {
+        let status = SecItemDelete(keychainQuery(for: key) as CFDictionary)
+        switch status {
+        case errSecSuccess, errSecItemNotFound:
+            return true
+        default:
+            logger.error("Failed to delete G2 keychain value for \(key, privacy: .public): \(status)")
+            return false
+        }
     }
 }
