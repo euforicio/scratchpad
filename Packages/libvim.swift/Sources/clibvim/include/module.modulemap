@@ -1,0 +1,6 @@
+module clibvim {
+    header "auto/config.h"
+    header "libvim.h"
+    link "iconv"
+    export *
+}

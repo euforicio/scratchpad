@@ -1,0 +1,109 @@
+import XCTest
+@testable import ScratchpadCore
+
+final class SyntaxThemeRegistryTests: XCTestCase {
+
+    func testThemeCount() {
+        XCTAssertEqual(SyntaxThemeRegistry.themes.count, 9)
+    }
+
+    func testScratchpadDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "scratchpad", isDark: true)
+        XCTAssertEqual(resource, "scratchpad-dark.min")
+    }
+
+    func testScratchpadLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "scratchpad", isDark: false)
+        XCTAssertEqual(resource, "scratchpad-light.min")
+    }
+
+    func testAtomOneDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "atom-one", isDark: true)
+        XCTAssertEqual(resource, "atom-one-dark.min")
+    }
+
+    func testAtomOneLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "atom-one", isDark: false)
+        XCTAssertEqual(resource, "atom-one-light.min")
+    }
+
+    func testTokyoNightDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "tokyo-night", isDark: true)
+        XCTAssertEqual(resource, "tokyo-night-dark.min")
+    }
+
+    func testTokyoNightLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "tokyo-night", isDark: false)
+        XCTAssertEqual(resource, "tokyo-night-light.min")
+    }
+
+    func testCatppuccinDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "catppuccin", isDark: true)
+        XCTAssertEqual(resource, "catppuccin-mocha.min")
+    }
+
+    func testCatppuccinLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "catppuccin", isDark: false)
+        XCTAssertEqual(resource, "catppuccin-latte.min")
+    }
+
+    func testSolarizedDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "solarized", isDark: true)
+        XCTAssertEqual(resource, "solarized-dark.min")
+    }
+
+    func testSolarizedLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "solarized", isDark: false)
+        XCTAssertEqual(resource, "solarized-light.min")
+    }
+
+    func testStackOverflowDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "stackoverflow", isDark: true)
+        XCTAssertEqual(resource, "stackoverflow-dark.min")
+    }
+
+    func testStackOverflowLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "stackoverflow", isDark: false)
+        XCTAssertEqual(resource, "stackoverflow-light.min")
+    }
+
+    func testGruvboxDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "gruvbox", isDark: true)
+        XCTAssertEqual(resource, "gruvbox-dark.min")
+    }
+
+    func testGruvboxLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "gruvbox", isDark: false)
+        XCTAssertEqual(resource, "gruvbox-light.min")
+    }
+
+    func testIntelliJDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "intellij", isDark: true)
+        XCTAssertEqual(resource, "androidstudio.min")
+    }
+
+    func testIntelliJLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "intellij", isDark: false)
+        XCTAssertEqual(resource, "intellij-light.min")
+    }
+
+    func testVSDarkResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "vs", isDark: true)
+        XCTAssertEqual(resource, "vs2015.min")
+    }
+
+    func testVSLightResource() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "vs", isDark: false)
+        XCTAssertEqual(resource, "vs.min")
+    }
+
+    func testUnknownIdFallsBackToScratchpadDark() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "nonexistent", isDark: true)
+        XCTAssertEqual(resource, "scratchpad-dark.min")
+    }
+
+    func testUnknownIdFallsBackToScratchpadLight() {
+        let resource = SyntaxThemeRegistry.cssResource(for: "nonexistent", isDark: false)
+        XCTAssertEqual(resource, "scratchpad-light.min")
+    }
+}

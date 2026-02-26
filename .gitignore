@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+Package.resolved
+dist/
+build/
+Packages/Bonsplit/build/
+lokalise.yml
+scripts/release-secrets.env

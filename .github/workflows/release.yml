@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      MACOS_SIGNING_CERT_P12: ${{ secrets.MACOS_SIGNING_CERT_P12 }}
+      MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+      MACOS_SIGNING_CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+      MACOS_DEVELOPER_ID_PROFILE: ${{ secrets.MACOS_DEVELOPER_ID_PROFILE }}
+      NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+      NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+      NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+      NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+      NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Validate tag and version
+        id: version
+        run: |
+          MARKETING_VERSION=$(grep 'MARKETING_VERSION:' project.yml | grep -v CFBundle | sed 's/.*: *"\(.*\)"/\1/')
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ -n "${TAG_VERSION}" && "${MARKETING_VERSION}" != "${TAG_VERSION}" ]]; then
+            echo "::warning::Tag ${GITHUB_REF_NAME} does not match MARKETING_VERSION ${MARKETING_VERSION}. Using tag version for release artifact naming."
+            echo "artifact_version=${TAG_VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "artifact_version=${MARKETING_VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "marketing_version=${MARKETING_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag_version=${TAG_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate required signing and notarization secrets
+        run: |
+          if [[ -z "${MACOS_SIGNING_IDENTITY}" ]]; then
+            echo "::error::Missing required signing identity: set MACOS_SIGNING_IDENTITY to a valid Developer ID Application identity."
+            exit 1
+          fi
+          if [[ -z "${MACOS_SIGNING_CERT_P12}" || -z "${MACOS_KEYCHAIN_PASSWORD}" || -z "${MACOS_SIGNING_CERT_PASSWORD}" ]]; then
+            echo "::error::Missing macOS signing secrets. Set MACOS_SIGNING_CERT_P12, MACOS_KEYCHAIN_PASSWORD, and MACOS_SIGNING_CERT_PASSWORD."
+            exit 1
+          fi
+          if [[ -z "${MACOS_DEVELOPER_ID_PROFILE}" ]]; then
+            echo "::error::Missing Developer ID provisioning profile secret: MACOS_DEVELOPER_ID_PROFILE."
+            exit 1
+          fi
+          if [[ -n "${NOTARY_KEY_ID}" || -n "${NOTARY_KEY_P8}" || -n "${NOTARY_ISSUER_ID}" ]]; then
+            if [[ -z "${NOTARY_KEY_ID}" || -z "${NOTARY_ISSUER_ID}" || -z "${NOTARY_KEY_P8}" ]]; then
+              echo "::error::Incomplete API-key notarization secrets. Set all of NOTARY_KEY_ID, NOTARY_ISSUER_ID, and NOTARY_KEY_P8."
+              exit 1
+            fi
+          elif [[ -z "${NOTARY_APPLE_ID}" || -z "${NOTARY_TEAM_ID}" || -z "${NOTARY_PASSWORD}" ]]; then
+            echo "::error::Missing notarization secrets. Set either API key (NOTARY_KEY_ID/NOTARY_ISSUER_ID/NOTARY_KEY_P8) or Apple ID (NOTARY_APPLE_ID/NOTARY_TEAM_ID/NOTARY_PASSWORD)."
+            exit 1
+          fi
+
+      - name: Import Developer ID signing certificate
+        if: ${{ env.MACOS_SIGNING_CERT_P12 != '' }}
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          keychain-password: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          p12-file-base64: ${{ secrets.MACOS_SIGNING_CERT_P12 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+
+      - name: Install Developer ID provisioning profile
+        if: ${{ env.MACOS_DEVELOPER_ID_PROFILE != '' }}
+        run: |
+          mkdir -p "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          printf '%s' "${MACOS_DEVELOPER_ID_PROFILE}" | tr -d '\n\r\t ' | base64 -d > "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/scratchpad-developer-id.mobileprovision"
+
+      - name: Prepare Notarization API key
+        id: notary_key
+        if: ${{ env.NOTARY_KEY_P8 != '' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/notary"
+          printf '%s' "${NOTARY_KEY_P8}" | tr -d '\n\r\t ' | base64 -d > "$RUNNER_TEMP/notary/scratchpad-notary-key.p8"
+          if [[ ! -s "$RUNNER_TEMP/notary/scratchpad-notary-key.p8" ]]; then
+            echo "::error::Failed to decode NOTARY_KEY_P8."
+            exit 1
+          fi
+          echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary/scratchpad-notary-key.p8" >> "$GITHUB_ENV"
+          echo "path=$RUNNER_TEMP/notary/scratchpad-notary-key.p8" >> "$GITHUB_OUTPUT"
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+
+      - name: Build, sign, notarize, staple
+        env:
+          SKIP_NOTARIZATION: "0"
+          REQUIRE_NOTARIZATION: "1"
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          NOTARY_KEY_PATH: ${{ steps.notary_key.outputs.path }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          SCRATCHPAD_DMG_VERSION: ${{ steps.version.outputs.artifact_version }}
+        run: bash scripts/build-release.sh
+
+      - name: Publish GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DMG_PATH="dist/Scratchpad-${{ steps.version.outputs.artifact_version }}.dmg"
+          if [[ ! -f "$DMG_PATH" ]]; then
+            echo "::error::Expected release artifact not found: $DMG_PATH"
+            exit 1
+          fi
+          TAG="v${{ steps.version.outputs.tag_version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG_PATH" --clobber
+          else
+            gh release create "$TAG" "$DMG_PATH" --title "$TAG" --generate-notes
+          fi
+          xcrun stapler validate "$DMG_PATH"
+          xcrun spctl -a -vvv -t install "$DMG_PATH"

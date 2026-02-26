@@ -1,0 +1,3 @@
+[submodule "onilibvim"]
+	path = Sources/clibvim/onilibvim
+	url = https://github.com/onivim/libvim.git

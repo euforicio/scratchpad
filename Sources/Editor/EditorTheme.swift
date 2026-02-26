@@ -1,0 +1,62 @@
+import AppKit
+
+struct EditorTheme {
+    let isDark: Bool
+    let background: NSColor
+    let foreground: NSColor
+
+    var insertionPointColor: NSColor { isDark ? .white : .black }
+
+    // MARK: - Resolve theme for current appearance setting
+
+    static func current(for appearance: String) -> EditorTheme {
+        switch appearance {
+        case "light": return light
+        case "dark": return dark
+        default:
+            if let app = NSApp {
+                return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            }
+            return NSAppUserDefaultsDarkMode() ? dark : light
+        }
+    }
+
+    // MARK: - Hardcoded fallback (Scratchpad)
+
+    static let dark = EditorTheme(
+        isDark: true,
+        background: hex(0x25252c),
+        foreground: hex(0xd4d4d4)
+    )
+
+    static let light = EditorTheme(
+        isDark: false,
+        background: hex(0xffffff),
+        foreground: hex(0x403e41)
+    )
+
+    // Bullet-dash color (matches punctuation.special from old captures)
+    var bulletDashColor: NSColor { isDark ? Self.hex(0xff6188) : Self.hex(0xd3284e) }
+
+    // Checkbox bracket color
+    var checkboxColor: NSColor { isDark ? Self.hex(0xab9df2) : Self.hex(0x7c6bb7) }
+
+    // Link color
+    var linkColor: NSColor { isDark ? Self.hex(0x78b9f2) : Self.hex(0x0969b2) }
+
+    // MARK: - Hex color helper
+
+    private static func hex(_ value: UInt32) -> NSColor {
+        let r = CGFloat((value >> 16) & 0xFF) / 255.0
+        let g = CGFloat((value >> 8) & 0xFF) / 255.0
+        let b = CGFloat(value & 0xFF) / 255.0
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+    }
+}
+
+private func NSAppUserDefaultsDarkMode() -> Bool {
+    if let interfaceStyle = UserDefaults.standard.string(forKey: "AppleInterfaceStyle"), interfaceStyle.caseInsensitiveCompare("dark") == .orderedSame {
+        return true
+    }
+    return false
+}
